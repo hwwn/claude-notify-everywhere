@@ -246,7 +246,7 @@ prompt_mobile() {
       echo ""
       echo "  Choose a hard-to-guess topic name (e.g., yourname-claude-notify)"
       read -rp "  ntfy topic: " ntfy_topic
-      MOBILE_CONFIG=$(jq -n --arg t "$ntfy_topic" '{"provider":"ntfy","ntfy_topic":$t}')
+      MOBILE_CONFIG=$(jq -c -n --arg t "$ntfy_topic" '{"provider":"ntfy","ntfy_topic":$t}')
       echo "  ✓ ntfy.sh topic: $ntfy_topic"
       ;;
     2)
@@ -254,7 +254,7 @@ prompt_mobile() {
       echo ""
       echo "  Open Bark app → copy your push URL (e.g., https://api.day.app/xxxxxxx)"
       read -rp "  Bark URL: " bark_url
-      MOBILE_CONFIG=$(jq -n --arg u "$bark_url" '{"provider":"bark","bark_url":$u}')
+      MOBILE_CONFIG=$(jq -c -n --arg u "$bark_url" '{"provider":"bark","bark_url":$u}')
       echo "  ✓ Bark URL configured"
       ;;
     3)
@@ -262,7 +262,7 @@ prompt_mobile() {
       echo ""
       read -rp "  Pushover User Key: " po_user
       read -rp "  Pushover API Token: " po_token
-      MOBILE_CONFIG=$(jq -n --arg u "$po_user" --arg t "$po_token" \
+      MOBILE_CONFIG=$(jq -c -n --arg u "$po_user" --arg t "$po_token" \
         '{"provider":"pushover","pushover_user":$u,"pushover_token":$t}')
       echo "  ✓ Pushover configured"
       ;;
@@ -271,7 +271,7 @@ prompt_mobile() {
       echo ""
       read -rp "  Telegram Bot Token: " tg_token
       read -rp "  Telegram Chat ID: " tg_chat
-      MOBILE_CONFIG=$(jq -n --arg t "$tg_token" --arg c "$tg_chat" \
+      MOBILE_CONFIG=$(jq -c -n --arg t "$tg_token" --arg c "$tg_chat" \
         '{"provider":"telegram","telegram_bot_token":$t,"telegram_chat_id":$c}')
       echo "  ✓ Telegram configured"
       ;;
