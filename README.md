@@ -1,14 +1,30 @@
 # claude-notify-everywhere
 
-Get notified when [Claude Code](https://claude.com/claude-code) needs your attention — on your Mac and your phone.
+You kick off a Claude Code task. It's going to take a minute. So you step away — pour a coffee, hit the restroom, maybe even start cooking dinner.
 
-Never miss a Claude Code prompt again. Whether it's waiting for your input, needs permission to proceed, or has finished a task — you'll know instantly.
+Then your phone buzzes: **"Task completed, waiting for your input."**
+
+You walk back, sit down, and pick up right where Claude left off. No staring at the terminal. No tab-switching every 30 seconds to check if it's done. Just... living your life, and getting pinged when it's your turn.
+
+**claude-notify-everywhere** hooks into Claude Code and notifies you — on your Mac, on your phone, or both — whenever Claude finishes a task, needs permission, or wants your input.
+
+<p align="center">
+  <img src="assets/ntfy-demo.png" width="300" alt="Phone notifications from Claude Code via ntfy" />
+  <br />
+  <em>Real-time Claude Code notifications on your phone via <a href="https://ntfy.sh">ntfy.sh</a> — free, no account needed</em>
+</p>
+
+<p align="center">
+  <img src="assets/macos-notification-demo.png" width="500" alt="macOS desktop notification from Claude Code" />
+  <br />
+  <em>macOS notification banner — click it to jump straight to your terminal (Ghostty, iTerm2, Warp, VS Code, etc.)</em>
+</p>
 
 ## Features
 
 - **Desktop notifications** with click-to-activate your terminal (Ghostty, iTerm2, Terminal.app, Warp, Alacritty, WezTerm, VS Code, Cursor, Claude Desktop)
-- **Mobile push** via ntfy.sh, Bark, Pushover, or Telegram
-- **Sound alerts** — choose from 14 macOS system sounds
+- **Mobile push** via [ntfy.sh](https://ntfy.sh) (recommended — free & dead simple), Bark, Pushover, or Telegram
+- **Sound alerts** — choose from 14 macOS system sounds, preview before you pick
 - **Clean install/uninstall** — surgically adds/removes hooks from Claude Code settings
 - **Zero background processes** — hooks are triggered by Claude Code itself
 
