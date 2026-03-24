@@ -1,0 +1,94 @@
+# claude-notify-everywhere
+
+Get notified when [Claude Code](https://claude.com/claude-code) needs your attention — on your Mac and your phone.
+
+Never miss a Claude Code prompt again. Whether it's waiting for your input, needs permission to proceed, or has finished a task — you'll know instantly.
+
+## Features
+
+- **Desktop notifications** with click-to-activate your terminal (Ghostty, iTerm2, Terminal.app, Warp, Alacritty, WezTerm, VS Code, Cursor, Claude Desktop)
+- **Mobile push** via ntfy.sh, Bark, Pushover, or Telegram
+- **Sound alerts** — choose from 14 macOS system sounds
+- **Clean install/uninstall** — surgically adds/removes hooks from Claude Code settings
+- **Zero background processes** — hooks are triggered by Claude Code itself
+
+## Install
+
+### Homebrew (recommended)
+
+```bash
+brew tap hwwn/claude-notify-everywhere
+brew install claude-notify-everywhere
+```
+
+### Manual
+
+```bash
+git clone https://github.com/hwwn/claude-notify-everywhere.git
+cd claude-notify-everywhere
+# Ensure dependencies are installed
+brew install jq terminal-notifier
+# Add to PATH
+ln -s "$(pwd)/bin/claude-notify-everywhere" /usr/local/bin/claude-notify-everywhere
+```
+
+## Setup
+
+Run the interactive setup wizard:
+
+```bash
+claude-notify-everywhere install
+```
+
+This will guide you through:
+
+1. **Terminal selection** — which app to activate when you click a notification
+2. **Sound selection** — preview and pick a notification sound
+3. **Mobile push** (optional) — set up phone notifications via your preferred provider
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `install` | Interactive setup wizard |
+| `uninstall` | Remove all hooks from Claude Code settings |
+| `config` | Re-run configuration (change terminal, sound, mobile) |
+| `test` | Send a test notification to desktop and mobile |
+| `status` | Show current configuration and hook status |
+
+## How It Works
+
+Claude Code supports [hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) — commands that run at specific lifecycle events. This tool configures three hooks:
+
+| Event | When | Notification |
+|-------|------|-------------|
+| **Stop** | Claude finishes and waits for input | "Task completed, waiting for your input" |
+| **PermissionRequest** | Claude needs approval for an action | "Approval needed: {tool name}" |
+| **Notification** | Claude sends a notification | The notification message content |
+
+Hooks are stored in `~/.claude/settings.json`. Your preferences are stored separately in `~/.claude-notify-everywhere.json`.
+
+## Mobile Push Providers
+
+| Provider | Cost | Setup |
+|----------|------|-------|
+| [ntfy.sh](https://ntfy.sh) | Free | Install app → subscribe to a topic |
+| [Bark](https://github.com/Finb/Bark) | Free | Install iOS app → copy push URL |
+| [Pushover](https://pushover.net) | $5 one-time | Create account → get user key + API token |
+| [Telegram](https://core.telegram.org/bots) | Free | Create bot via @BotFather → get token + chat ID |
+
+## Uninstall
+
+```bash
+claude-notify-everywhere uninstall
+```
+
+This only removes the notification hooks from Claude Code settings. Your other settings remain untouched. To also remove the CLI:
+
+```bash
+brew uninstall claude-notify-everywhere
+```
+
+## License
+
+MIT

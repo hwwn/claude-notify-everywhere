@@ -1,0 +1,506 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="1.0.0"
+CONFIG_FILE="$HOME/.claude-notify-everywhere.json"
+CLAUDE_SETTINGS="$HOME/.claude/settings.json"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$(cd "$SCRIPT_DIR/../lib" && pwd)"
+
+# shellcheck source=../lib/terminals.sh
+source "$LIB_DIR/terminals.sh"
+
+# ─── Helpers ──────────────────────────────────────────────
+
+print_header() {
+  echo ""
+  echo "🔔 Claude Notify Everywhere v${VERSION}"
+  echo ""
+}
+
+die() { echo "Error: $1" >&2; exit 1; }
+
+ensure_jq() {
+  command -v jq >/dev/null 2>&1 || die "jq is required. Install with: brew install jq"
+}
+
+ensure_terminal_notifier() {
+  command -v terminal-notifier >/dev/null 2>&1 || die "terminal-notifier is required. Install with: brew install terminal-notifier"
+}
+
+ensure_claude_settings() {
+  if [ ! -f "$CLAUDE_SETTINGS" ]; then
+    mkdir -p "$(dirname "$CLAUDE_SETTINGS")"
+    echo '{}' > "$CLAUDE_SETTINGS"
+  fi
+}
+
+read_config() {
+  if [ -f "$CONFIG_FILE" ]; then
+    cat "$CONFIG_FILE"
+  else
+    echo '{}'
+  fi
+}
+
+config_get() {
+  local key="$1"
+  local default="${2:-}"
+  local val
+  val=$(read_config | jq -r "$key // empty" 2>/dev/null) || true
+  echo "${val:-$default}"
+}
+
+# ─── Desktop notification ─────────────────────────────────
+
+send_desktop() {
+  local message="$1"
+  local sound terminal_id bundle_id
+  sound=$(config_get '.sound' 'Glass')
+  terminal_id=$(config_get '.terminal' 'ghostty')
+  bundle_id=$(get_bundle_id "$terminal_id")
+
+  terminal-notifier \
+    -message "$message" \
+    -title "Claude Code" \
+    -sound "$sound" \
+    -activate "$bundle_id" \
+    2>/dev/null || true
+}
+
+# ─── Mobile notification ──────────────────────────────────
+
+send_mobile() {
+  local message="$1"
+  local provider
+  provider=$(config_get '.mobile.provider' '')
+
+  [ -z "$provider" ] && return 0
+
+  case "$provider" in
+    ntfy)
+      local topic
+      topic=$(config_get '.mobile.ntfy_topic' '')
+      [ -n "$topic" ] && curl -s -d "$message" "ntfy.sh/$topic" > /dev/null 2>&1 &
+      ;;
+    bark)
+      local url
+      url=$(config_get '.mobile.bark_url' '')
+      [ -n "$url" ] && curl -s "$url/Claude%20Code/$message" > /dev/null 2>&1 &
+      ;;
+    pushover)
+      local user token
+      user=$(config_get '.mobile.pushover_user' '')
+      token=$(config_get '.mobile.pushover_token' '')
+      [ -n "$user" ] && [ -n "$token" ] && curl -s \
+        --form-string "token=$token" \
+        --form-string "user=$user" \
+        --form-string "title=Claude Code" \
+        --form-string "message=$message" \
+        https://api.pushover.net/1/messages.json > /dev/null 2>&1 &
+      ;;
+    telegram)
+      local bot_token chat_id
+      bot_token=$(config_get '.mobile.telegram_bot_token' '')
+      chat_id=$(config_get '.mobile.telegram_chat_id' '')
+      [ -n "$bot_token" ] && [ -n "$chat_id" ] && curl -s \
+        "https://api.telegram.org/bot${bot_token}/sendMessage" \
+        -d "chat_id=$chat_id" \
+        -d "text=🔔 Claude Code: $message" > /dev/null 2>&1 &
+      ;;
+  esac
+  wait 2>/dev/null || true
+}
+
+# ─── _notify (internal, called by hooks) ──────────────────
+
+cmd_notify() {
+  local event=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --event) event="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  local message=""
+  local stdin_data=""
+  if [ ! -t 0 ]; then
+    stdin_data=$(cat)
+  fi
+
+  case "$event" in
+    stop)
+      message="Task completed, waiting for your input"
+      ;;
+    permission)
+      local tool_name=""
+      if [ -n "$stdin_data" ]; then
+        tool_name=$(echo "$stdin_data" | jq -r '.tool_name // empty' 2>/dev/null) || true
+      fi
+      message="Approval needed: ${tool_name:-action}"
+      ;;
+    notification)
+      if [ -n "$stdin_data" ]; then
+        message=$(echo "$stdin_data" | jq -r '.message // empty' 2>/dev/null) || true
+      fi
+      message="${message:-Action needed}"
+      ;;
+    *)
+      message="Claude Code needs your attention"
+      ;;
+  esac
+
+  send_desktop "$message"
+  send_mobile "$message"
+}
+
+# ─── Install wizard ───────────────────────────────────────
+
+prompt_terminal() {
+  echo "Select your terminal:"
+  local i=1
+  for key in $TERMINAL_KEYS; do
+    echo "  $i. $(get_display_name "$key")"
+    i=$((i + 1))
+  done
+  echo ""
+  read -rp "> " choice
+
+  local total
+  total=$(count_terminals)
+  if echo "$choice" | grep -qE '^[0-9]+$' && [ "$choice" -ge 1 ] && [ "$choice" -le "$total" ]; then
+    SELECTED_TERMINAL=$(get_terminal_by_index "$choice")
+  else
+    echo "Invalid choice, defaulting to Ghostty"
+    SELECTED_TERMINAL="ghostty"
+  fi
+  echo "  ✓ $(get_display_name "$SELECTED_TERMINAL")"
+  echo ""
+}
+
+prompt_sound() {
+  echo "Select notification sound:"
+  local i=1
+  local row=""
+  for s in $SOUNDS; do
+    row="$row  $i. $s"
+    if [ $((i % 5)) -eq 0 ]; then
+      echo "$row"
+      row=""
+    fi
+    i=$((i + 1))
+  done
+  [ -n "$row" ] && echo "$row"
+  echo ""
+  echo "  Enter a number to select, or 'p3' to preview sound #3"
+  echo ""
+
+  local total
+  total=$(count_sounds)
+
+  while true; do
+    read -rp "> " choice
+    # Handle preview: p1, p2, etc.
+    if echo "$choice" | grep -qE '^p[0-9]+$'; then
+      local idx
+      idx=$(echo "$choice" | sed 's/^p//')
+      if [ "$idx" -ge 1 ] && [ "$idx" -le "$total" ]; then
+        local preview_sound
+        preview_sound=$(get_sound_by_index "$idx")
+        afplay "/System/Library/Sounds/${preview_sound}.aiff" 2>/dev/null &
+        echo "  ♪ Playing ${preview_sound}..."
+        continue
+      fi
+    fi
+    if echo "$choice" | grep -qE '^[0-9]+$' && [ "$choice" -ge 1 ] && [ "$choice" -le "$total" ]; then
+      SELECTED_SOUND=$(get_sound_by_index "$choice")
+      break
+    fi
+    echo "  Invalid choice, try again"
+  done
+  echo "  ✓ ${SELECTED_SOUND}"
+  echo ""
+}
+
+prompt_mobile() {
+  read -rp "Enable mobile push notifications? (y/n) " yn
+  echo ""
+
+  MOBILE_PROVIDER=""
+  MOBILE_CONFIG="{}"
+
+  [ "$yn" != "y" ] && [ "$yn" != "Y" ] && return 0
+
+  echo "Select provider:"
+  echo "  1. ntfy.sh (free, no account needed)"
+  echo "  2. Bark (iOS, popular in China)"
+  echo "  3. Pushover (\$5 one-time, cross-platform)"
+  echo "  4. Telegram Bot"
+  echo ""
+  read -rp "> " provider_choice
+
+  case "$provider_choice" in
+    1)
+      MOBILE_PROVIDER="ntfy"
+      echo ""
+      echo "  Choose a hard-to-guess topic name (e.g., yourname-claude-notify)"
+      read -rp "  ntfy topic: " ntfy_topic
+      MOBILE_CONFIG=$(jq -n --arg t "$ntfy_topic" '{"provider":"ntfy","ntfy_topic":$t}')
+      echo "  ✓ ntfy.sh topic: $ntfy_topic"
+      ;;
+    2)
+      MOBILE_PROVIDER="bark"
+      echo ""
+      echo "  Open Bark app → copy your push URL (e.g., https://api.day.app/xxxxxxx)"
+      read -rp "  Bark URL: " bark_url
+      MOBILE_CONFIG=$(jq -n --arg u "$bark_url" '{"provider":"bark","bark_url":$u}')
+      echo "  ✓ Bark URL configured"
+      ;;
+    3)
+      MOBILE_PROVIDER="pushover"
+      echo ""
+      read -rp "  Pushover User Key: " po_user
+      read -rp "  Pushover API Token: " po_token
+      MOBILE_CONFIG=$(jq -n --arg u "$po_user" --arg t "$po_token" \
+        '{"provider":"pushover","pushover_user":$u,"pushover_token":$t}')
+      echo "  ✓ Pushover configured"
+      ;;
+    4)
+      MOBILE_PROVIDER="telegram"
+      echo ""
+      read -rp "  Telegram Bot Token: " tg_token
+      read -rp "  Telegram Chat ID: " tg_chat
+      MOBILE_CONFIG=$(jq -n --arg t "$tg_token" --arg c "$tg_chat" \
+        '{"provider":"telegram","telegram_bot_token":$t,"telegram_chat_id":$c}')
+      echo "  ✓ Telegram configured"
+      ;;
+    *)
+      echo "  Skipping mobile notifications"
+      ;;
+  esac
+  echo ""
+}
+
+write_config() {
+  local mobile_json="${MOBILE_CONFIG:-{}}"
+  jq -n \
+    --arg terminal "$SELECTED_TERMINAL" \
+    --arg sound "$SELECTED_SOUND" \
+    --argjson mobile "$mobile_json" \
+    '{terminal: $terminal, sound: $sound, mobile: $mobile}' \
+    > "$CONFIG_FILE"
+}
+
+inject_hooks() {
+  ensure_claude_settings
+
+  local hook_cmd
+  hook_cmd=$(command -v claude-notify-everywhere)
+
+  local hooks_json
+  hooks_json=$(jq -n --arg cmd "$hook_cmd" '{
+    "Stop": [{
+      "hooks": [{
+        "type": "command",
+        "command": ($cmd + " _notify --event stop"),
+        "timeout": 5
+      }]
+    }],
+    "PermissionRequest": [{
+      "hooks": [{
+        "type": "command",
+        "command": ($cmd + " _notify --event permission"),
+        "timeout": 5
+      }]
+    }],
+    "Notification": [{
+      "hooks": [{
+        "type": "command",
+        "command": ($cmd + " _notify --event notification"),
+        "timeout": 5
+      }]
+    }]
+  }')
+
+  # Remove existing claude-notify-everywhere hooks, then merge new ones
+  local existing
+  existing=$(cat "$CLAUDE_SETTINGS")
+
+  local cleaned
+  cleaned=$(echo "$existing" | jq '
+    if .hooks then
+      .hooks |= with_entries(
+        .value |= map(
+          select(.hooks | all(.command | test("claude-notify-everywhere") | not))
+        ) | select(length > 0)
+      ) |
+      if .hooks == {} then del(.hooks) else . end
+    else .
+    end
+  ')
+
+  echo "$cleaned" | jq --argjson new_hooks "$hooks_json" '
+    .hooks = ((.hooks // {}) * $new_hooks)
+  ' > "$CLAUDE_SETTINGS.tmp" && mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
+}
+
+cmd_install() {
+  print_header
+  ensure_jq
+  ensure_terminal_notifier
+
+  prompt_terminal
+  prompt_sound
+  prompt_mobile
+  write_config
+  inject_hooks
+
+  echo "✅ Config saved to $CONFIG_FILE"
+  echo "✅ Hooks added to $CLAUDE_SETTINGS"
+  echo ""
+
+  read -rp "Send a test notification? (y/n) " test_yn
+  if [ "$test_yn" = "y" ] || [ "$test_yn" = "Y" ]; then
+    cmd_test
+  fi
+
+  echo ""
+  echo "Done! Claude Code will now notify you when it needs your attention."
+}
+
+# ─── Uninstall ────────────────────────────────────────────
+
+cmd_uninstall() {
+  print_header
+  ensure_jq
+
+  if [ -f "$CLAUDE_SETTINGS" ]; then
+    local cleaned
+    cleaned=$(jq '
+      if .hooks then
+        .hooks |= with_entries(
+          .value |= map(
+            select(.hooks | all(.command | test("claude-notify-everywhere") | not))
+          ) | select(length > 0)
+        ) |
+        if .hooks == {} then del(.hooks) else . end
+      else .
+      end
+    ' "$CLAUDE_SETTINGS")
+    echo "$cleaned" > "$CLAUDE_SETTINGS.tmp" && mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
+    echo "✅ Hooks removed from $CLAUDE_SETTINGS"
+  else
+    echo "  No Claude settings file found, nothing to remove."
+  fi
+
+  if [ -f "$CONFIG_FILE" ]; then
+    rm "$CONFIG_FILE"
+    echo "✅ Config removed: $CONFIG_FILE"
+  fi
+
+  echo ""
+  echo "Uninstalled. Your other Claude Code settings are untouched."
+}
+
+# ─── Config (re-run wizard) ───────────────────────────────
+
+cmd_config() {
+  print_header
+  ensure_jq
+  ensure_terminal_notifier
+
+  prompt_terminal
+  prompt_sound
+  prompt_mobile
+  write_config
+  inject_hooks
+
+  echo "✅ Config updated!"
+}
+
+# ─── Test ─────────────────────────────────────────────────
+
+cmd_test() {
+  ensure_jq
+  ensure_terminal_notifier
+
+  echo "  Sending test notification..."
+  send_desktop "Test notification from Claude Notify Everywhere"
+  send_mobile "Test notification from Claude Notify Everywhere"
+  echo "  ✓ Test notification sent!"
+}
+
+# ─── Status ───────────────────────────────────────────────
+
+cmd_status() {
+  print_header
+  ensure_jq
+
+  if [ ! -f "$CONFIG_FILE" ]; then
+    echo "  Status: Not configured"
+    echo "  Run 'claude-notify-everywhere install' to set up."
+    return
+  fi
+
+  local terminal sound provider
+  terminal=$(config_get '.terminal' 'unknown')
+  sound=$(config_get '.sound' 'unknown')
+  provider=$(config_get '.mobile.provider' 'none')
+
+  echo "  Terminal:  $(get_display_name "$terminal")"
+  echo "  Sound:     $sound"
+  echo "  Mobile:    $provider"
+
+  if [ "$provider" = "ntfy" ]; then
+    local topic
+    topic=$(config_get '.mobile.ntfy_topic' '')
+    echo "  ntfy topic: $topic"
+  fi
+
+  echo ""
+
+  if [ -f "$CLAUDE_SETTINGS" ] && jq -e '.hooks.Stop[]?.hooks[]? | select(.command | test("claude-notify-everywhere"))' "$CLAUDE_SETTINGS" >/dev/null 2>&1; then
+    echo "  Hooks: ✅ Installed in Claude Code"
+  else
+    echo "  Hooks: ❌ Not found in Claude Code settings"
+    echo "  Run 'claude-notify-everywhere install' to fix."
+  fi
+}
+
+# ─── Usage ────────────────────────────────────────────────
+
+cmd_help() {
+  print_header
+  echo "Usage: claude-notify-everywhere <command>"
+  echo ""
+  echo "Commands:"
+  echo "  install     Interactive setup wizard"
+  echo "  uninstall   Remove hooks from Claude Code settings"
+  echo "  config      Re-run configuration"
+  echo "  test        Send a test notification"
+  echo "  status      Show current configuration"
+  echo "  version     Show version"
+  echo "  help        Show this help"
+}
+
+# ─── Main ─────────────────────────────────────────────────
+
+main() {
+  local cmd="${1:-help}"
+  shift || true
+
+  case "$cmd" in
+    install)    cmd_install "$@" ;;
+    uninstall)  cmd_uninstall "$@" ;;
+    config)     cmd_config "$@" ;;
+    test)       cmd_test "$@" ;;
+    status)     cmd_status "$@" ;;
+    _notify)    cmd_notify "$@" ;;
+    version)    echo "claude-notify-everywhere v${VERSION}" ;;
+    help|--help|-h) cmd_help ;;
+    *)          echo "Unknown command: $cmd"; cmd_help; exit 1 ;;
+  esac
+}
+
+main "$@"
