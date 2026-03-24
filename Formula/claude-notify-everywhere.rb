@@ -2,7 +2,7 @@ class ClaudeNotifyEverywhere < Formula
   desc "Get notified when Claude Code needs your attention — desktop & mobile"
   homepage "https://github.com/hwwn/claude-notify-everywhere"
   url "https://github.com/hwwn/claude-notify-everywhere/archive/refs/tags/v1.0.0.tar.gz"
-  sha256 "55f019b1019f3e7eb6f3b2de81a11f0111138440696f85c10aa1b7c9903f5ea4"
+  sha256 "66925c30e8dfd12b300863b163196f86451fe711636ef8db30c6aa1eb926d90c"
   license "MIT"
 
   depends_on "jq"
