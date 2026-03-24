@@ -33,8 +33,7 @@ You walk back, sit down, and pick up right where Claude left off. No staring at 
 ### Homebrew (recommended)
 
 ```bash
-brew tap hwwn/claude-notify-everywhere
-brew install claude-notify-everywhere
+brew install hwwn/tap/claude-notify-everywhere
 ```
 
 ### Manual
