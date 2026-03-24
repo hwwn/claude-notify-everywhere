@@ -283,7 +283,8 @@ prompt_mobile() {
 }
 
 write_config() {
-  local mobile_json="${MOBILE_CONFIG:-{}}"
+  local default_mobile='{}'
+  local mobile_json="${MOBILE_CONFIG:-$default_mobile}"
   jq -n \
     --arg terminal "$SELECTED_TERMINAL" \
     --arg sound "$SELECTED_SOUND" \
